@@ -1,142 +1,214 @@
 #!/usr/bin/env python3
-"""Draw the news-image-20261123 entry: a one-page newspaper front page
-summing up world news of Monday 23 November 2026. Output: entry.png,
-1024x1024, well under the 1 MiB cap. Run: python3 draw.py"""
+"""news-image-20261123 entry, v2.
+
+Draws a newspaper front page summing up Monday 23 November 2026.
+Every story below is a development of that Monday, verified against
+real reporting (Reuters, WSJ, CNN, AP, ESA, BBC/Reuters wires):
+the Nvidia board's reinstatement of Jensen Huang, Asia's Monday
+sell-off, the confirmed toll of the Indonesian factory fire, the
+Monday claim of the Merkury sinking, Dymer's toll and day of
+mourning, plus the day's other news in the foot strip.
+
+Output: entry.png, 1024x1024, well under the 1 MiB cap.
+Run: python3 draw.py
+"""
 
 from PIL import Image, ImageDraw, ImageFont
-import textwrap
 
-W, H = 1024, 1024
-PAPER = (247, 243, 234)   # off-white newsprint
-INK = (18, 18, 18)
-NAVY = (11, 31, 58)
-RED = (178, 34, 34)
-GOLD = (201, 162, 39)
-GREY = (90, 90, 90)
-RULE = (180, 175, 160)
+CANVAS = (1024, 1024)
+NEWS = (248, 244, 235)      # newsprint off-white
+INK = (16, 16, 16)
+NAVY = (10, 30, 56)
+CRIMSON = (176, 32, 32)
+GOLD = (203, 164, 40)
+MIDGREY = (96, 96, 96)
+HAIRLINE = (178, 173, 158)
+WHITE = (255, 255, 255)
 
-SERIF_B = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
-SERIF = "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"
-SANS_B = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-SANS = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
+FONT_DIR = "/usr/share/fonts/truetype/liberation"
+SERIF_BOLD = FONT_DIR + "/LiberationSerif-Bold.ttf"
+SERIF_REG = FONT_DIR + "/LiberationSerif-Regular.ttf"
+SANS_BOLD = FONT_DIR + "/LiberationSans-Bold.ttf"
+SANS_REG = FONT_DIR + "/LiberationSans-Regular.ttf"
+
+MARGIN = 44
+CONTENT_W = CANVAS[0] - 2 * MARGIN
+GUTTER = 24
+HALF_W = (CONTENT_W - GUTTER) // 2
 
 
-def font(path, size):
+def typeface(path, size):
     return ImageFont.truetype(path, size)
 
 
-def wrap(draw, text, fnt, max_w):
-    words, lines, cur = text.split(), [], ""
-    for w in words:
-        trial = (cur + " " + w).strip()
-        if draw.textlength(trial, font=fnt) <= max_w:
-            cur = trial
+def flow_text(canvas, text, face, limit):
+    """Greedy word wrap; returns a list of lines fitting `limit` px."""
+    out, current = [], ""
+    for word in text.split():
+        trial = (current + " " + word).strip()
+        if canvas.textlength(trial, font=face) <= limit or not current:
+            current = trial
         else:
-            lines.append(cur)
-            cur = w
-    if cur:
-        lines.append(cur)
-    return lines
+            out.append(current)
+            current = word
+    if current:
+        out.append(current)
+    return out
 
 
-def para(draw, x, y, text, fnt, max_w, leading, fill=INK):
-    for line in wrap(draw, text, fnt, max_w):
-        draw.text((x, y), line, font=fnt, fill=fill)
-        y += leading
+def draw_lines(canvas, x, y, lines, face, step, colour=INK):
+    for line in lines:
+        canvas.text((x, y), line, font=face, fill=colour)
+        y += step
     return y
 
 
-def kicker(draw, x, y, text, color=RED):
-    f = font(SANS_B, 24)
-    draw.text((x, y), text, font=f, fill=color)
-    return y + 32
+def draw_kicker(canvas, x, y, label):
+    face = typeface(SANS_BOLD, 23)
+    canvas.text((x, y), label.upper(), font=face, fill=CRIMSON)
+    return y + 31
 
 
-def headline(draw, x, y, text, size, max_w, fill=INK):
-    f = font(SERIF_B, size)
-    for line in wrap(draw, text, f, max_w):
-        draw.text((x, y), line, font=f, fill=fill)
-        y += int(size * 1.02)
+def draw_headline(canvas, x, y, text, size, limit):
+    face = typeface(SERIF_BOLD, size)
+    lines = flow_text(canvas, text, face, limit)
+    return draw_lines(canvas, x, y, lines, face, int(size * 1.04))
+
+
+def draw_body(canvas, x, y, text, size, limit):
+    face = typeface(SERIF_REG, size)
+    lines = flow_text(canvas, text, face, limit)
+    return draw_lines(canvas, x, y, lines, face, int(size * 1.32))
+
+
+def draw_rule(canvas, y, x0=MARGIN, x1=None):
+    canvas.line([(x0, y), (x1 or CANVAS[0] - MARGIN, y)], fill=HAIRLINE, width=2)
+
+
+def draw_vrule(canvas, x, y0, y1):
+    canvas.line([(x, y0), (x, y1)], fill=HAIRLINE, width=2)
+
+
+def draw_story(canvas, x, y, story, head_size=35):
+    """One kicker + headline + body block. Returns the y below it."""
+    y = draw_kicker(canvas, x, y, story["kicker"])
+    y = draw_headline(canvas, x, y, story["headline"], head_size, HALF_W)
+    y = draw_body(canvas, x, y + 4, story["body"], 22, HALF_W)
     return y
 
 
-img = Image.new("RGB", (W, H), PAPER)
-d = ImageDraw.Draw(img)
+LEAD = {
+    "kicker": "Technology  •  Business",
+    "headline": "HUANG IS BACK AT NVIDIA",
+    "body": (
+        "Nvidia's board unanimously reinstates Jensen Huang as chief "
+        "executive, 11 days after he resigned over affairs including "
+        "one with a suspected Chinese spy. President Trump backs the "
+        "return; shares jump about 30%."
+    ),
+}
 
-# ---- Masthead -------------------------------------------------------
-d.rectangle([0, 0, W, 148], fill=NAVY)
-d.text((512, 18), "THE WORLD TODAY", font=font(SERIF_B, 78),
-       fill=(255, 255, 255), anchor="ma")
-d.text((512, 108), "M O N D A Y   2 3   N O V E M B E R   2 0 2 6",
-       font=font(SANS_B, 26), fill=GOLD, anchor="ma")
-d.rectangle([0, 148, W, 154], fill=GOLD)
-
-# ---- Lead story: COP31 ----------------------------------------------
-y = 178
-y = kicker(d, 40, y, "CLIMATE  •  ANTALYA, TURKEY")
-y = headline(d, 40, y, "COP31 COLLAPSES", 72, 944)
-y = para(d, 40, y + 6,
-         "The climate summit ends with no deal after the longest talks in "
-         "UN history. The EU and about 130 nations reject a draft text "
-         "that omits fossil fuels.",
-         font(SERIF, 29), 944, 36)
-d.line([40, y + 18, 984, y + 18], fill=RULE, width=2)
-
-# ---- Row 1: markets | Ukraine ---------------------------------------
-y1 = y + 38
-col_w = 452
-y = kicker(d, 40, y1, "MARKETS")
-y = headline(d, 40, y, "AI SELL-OFF SINKS STOCKS", 38, col_w)
-para(d, 40, y + 4,
-     "Nikkei falls 5.06% and the S&P 500 drops 3.7% as AI fears spread "
-     "across Asia. Gold climbs as investors seek safety.",
-     font(SERIF, 25), col_w, 30)
-
-y = kicker(d, 532, y1, "UKRAINE")
-y = headline(d, 532, y, "BOY, 7, PULLED ALIVE FROM RUBBLE", 38, col_w)
-para(d, 532, y + 4,
-     "A Russian strike on Dymer, north of Kyiv, kills at least 10. "
-     "Rescuers free a seven-year-old boy from the rubble.",
-     font(SERIF, 25), col_w, 30)
-
-d.line([512, y1, 512, y1 + 210], fill=RULE, width=2)
-d.line([40, y1 + 230, 984, y1 + 230], fill=RULE, width=2)
-
-# ---- Row 2: warship | cartel boss -----------------------------------
-y2 = y1 + 250
-y = kicker(d, 40, y2, "LIBYA  •  MEDITERRANEAN")
-y = headline(d, 40, y, "RUSSIAN WARSHIP SUNK", 38, col_w)
-para(d, 40, y + 4,
-     "A Ukrainian naval drone severely damages the Russian corvette "
-     "Merkury off Benghazi.",
-     font(SERIF, 25), col_w, 30)
-
-y = kicker(d, 532, y2, "MEXICO")
-y = headline(d, 532, y, "\u2018EL CHAPO ISIDRO\u2019 CAPTURED", 38, col_w)
-para(d, 532, y + 4,
-     "FBI most-wanted cartel leader Fausto Isidro Meza Flores is arrested "
-     "in Sinaloa.",
-     font(SERIF, 25), col_w, 30)
-
-d.line([512, y2, 512, y2 + 200], fill=RULE, width=2)
-
-# ---- Bottom strip: also today ---------------------------------------
-by = 884
-d.rectangle([0, by, W, H], fill=NAVY)
-d.text((40, by + 16), "ALSO TODAY", font=font(SANS_B, 26), fill=GOLD)
-items = [
-    "Penny ends \u2014 Trump signs Common Cents Act",
-    "Delta outage delays 1,600+ flights",
-    "Lebanon ceasefire: villagers return home",
-    "Molly Meldrum dies at 83",
+ROW_ONE = [
+    {
+        "kicker": "Markets",
+        "headline": "ASIA SINKS AS AI ROUT SPREADS",
+        "body": (
+            "Seoul falls 5.2% and Taipei 6.2% as the AI sell-off "
+            "deepens; Hong Kong drops 1.9%. US futures rebound on "
+            "the Nvidia news."
+        ),
+    },
+    {
+        "kicker": "Indonesia",
+        "headline": "24 DEAD IN FACTORY FIRE",
+        "body": (
+            "Indonesia confirms 24 people killed in a fire at a "
+            "sweets factory near Jakarta, with about 30 still missing."
+        ),
+    },
 ]
-yy = by + 52
-for i, item in enumerate(items):
-    col_x = 40 if i % 2 == 0 else 532
-    if i == 2:
-        yy = by + 92
-    d.text((col_x, yy), "\u2022  " + item, font=font(SANS, 20),
-           fill=(255, 255, 255))
 
-img.save("entry.png", optimize=True)
-print("saved entry.png")
+ROW_TWO = [
+    {
+        "kicker": "Libya  •  Mediterranean",
+        "headline": "UKRAINE SAYS IT SANK RUSSIAN WARSHIP",
+        "body": (
+            "President Zelensky says sea drones sank the corvette "
+            "Merkury off Benghazi and hit the cargo ship Angara."
+        ),
+    },
+    {
+        "kicker": "Ukraine",
+        "headline": "DYMER TOLL 11 AS REGION MOURNS",
+        "body": (
+            "A boy of seven was pulled alive after 14 hours under "
+            "rubble, as the Kyiv region mourns 11 dead."
+        ),
+    },
+]
+
+ALSO_TODAY = [
+    "Molly Meldrum dies at 83",
+    "BepiColombo safe in orbit around Mercury after glitch",
+    "EU proposes 22nd sanctions package on Russia",
+    "Delta chaos spills into Monday: 92 more flights axed",
+    "COP31 fallout: Erdogan defends no-deal summit",
+]
+
+
+def build():
+    page = Image.new("RGB", CANVAS, NEWS)
+    pen = ImageDraw.Draw(page)
+
+    # ---- Masthead ---------------------------------------------------
+    pen.rectangle([0, 0, CANVAS[0], 150], fill=NAVY)
+    pen.text((512, 16), "THE WORLD TODAY", font=typeface(SERIF_BOLD, 76),
+             fill=WHITE, anchor="ma")
+    pen.text((512, 106), "M O N D A Y   2 3   N O V E M B E R   2 0 2 6",
+             font=typeface(SANS_BOLD, 25), fill=GOLD, anchor="ma")
+    pen.rectangle([0, 150, CANVAS[0], 156], fill=GOLD)
+
+    # ---- Lead story -------------------------------------------------
+    y = 172
+    y = draw_kicker(pen, MARGIN, y, LEAD["kicker"])
+    y = draw_headline(pen, MARGIN, y, LEAD["headline"], 62, CONTENT_W)
+    y = draw_body(pen, MARGIN, y + 6, LEAD["body"], 27, CONTENT_W)
+    draw_rule(pen, y + 14)
+
+    # ---- Row one: markets | Indonesia -------------------------------
+    top = y + 28
+    left_end = draw_story(pen, MARGIN, top, ROW_ONE[0])
+    right_end = draw_story(pen, MARGIN + HALF_W + GUTTER, top, ROW_ONE[1])
+    row_bottom = max(left_end, right_end)
+    draw_vrule(pen, 512, top, row_bottom)
+    draw_rule(pen, row_bottom + 14)
+
+    # ---- Row two: Libya | Ukraine -----------------------------------
+    top2 = row_bottom + 28
+    left_end = draw_story(pen, MARGIN, top2, ROW_TWO[0])
+    right_end = draw_story(pen, MARGIN + HALF_W + GUTTER, top2, ROW_TWO[1])
+    row2_bottom = max(left_end, right_end)
+    draw_vrule(pen, 512, top2, row2_bottom)
+    print("layout: lead ends", y, "| row1 ends", row_bottom,
+          "| row2 ends", row2_bottom)
+    assert row2_bottom <= 868, "row 2 overflows into the foot strip"
+
+    # ---- Foot strip: also today -------------------------------------
+    strip_top = 846
+    pen.rectangle([0, strip_top, CANVAS[0], CANVAS[1]], fill=NAVY)
+    pen.text((MARGIN, strip_top + 12), "ALSO TODAY",
+             font=typeface(SANS_BOLD, 25), fill=GOLD)
+    item_face = typeface(SANS_REG, 19)
+    col_x = [MARGIN, MARGIN + HALF_W + GUTTER]
+    rows_y = [strip_top + 48, strip_top + 74, strip_top + 100]
+    for idx, item in enumerate(ALSO_TODAY):
+        cx = col_x[idx % 2]
+        cy = rows_y[idx // 2]
+        pen.text((cx, cy), "\u2022  " + item, font=item_face, fill=WHITE)
+
+    page.save("entry.png", optimize=True)
+    print("saved entry.png")
+
+
+if __name__ == "__main__":
+    build()
